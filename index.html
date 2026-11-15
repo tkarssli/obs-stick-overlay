@@ -1,0 +1,1193 @@
+<!doctype html>
+<!--
+  OBS Stick Overlay
+  Author: u/damnbino (https://www.reddit.com/user/damnbino)
+
+  MIT License
+
+  Copyright (c) 2026 u/damnbino
+
+  Permission is hereby granted, free of charge, to any person obtaining a copy
+  of this software and associated documentation files (the "Software"), to deal
+  in the Software without restriction, including without limitation the rights
+  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+  copies of the Software, and to permit persons to whom the Software is
+  furnished to do so, subject to the following conditions:
+
+  The above copyright notice and this permission notice shall be included in all
+  copies or substantial portions of the Software.
+
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+  SOFTWARE.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>OBS Stick Overlay</title>
+    <!--
+  EdgeTX stick overlay for OBS (Browser Source)
+  ------------------------------------------------
+  Reads the radio in USB "Joystick" mode via the browser Gamepad API.
+  1. Open this file in Chrome/Edge -> setup panel appears. Map sticks, tweak looks.
+  2. Copy the generated URL. In OBS add a Browser source, UNCHECK "Local file",
+     paste the URL. The setup panel hides itself inside OBS.
+  Every option can also be set by editing DEFAULTS below.
+-->
+    <style>
+      :root {
+        --size: 200px;
+        --accent: #4ade80;
+        --box: rgba(12, 14, 18, 0.8);
+        --line: rgba(255, 255, 255, 0.16);
+        --text: rgba(255, 255, 255, 0.78);
+        --gap: 14px;
+      }
+      html,
+      body {
+        margin: 0;
+        background: transparent;
+        overflow: hidden;
+        color: var(--text);
+        font-family: "Segoe UI", system-ui, sans-serif;
+      }
+      body.setup-mode {
+        background: #24272d;
+        background-image:
+          linear-gradient(
+            45deg,
+            #2b2e35 25%,
+            transparent 25%,
+            transparent 75%,
+            #2b2e35 75%
+          ),
+          linear-gradient(
+            45deg,
+            #2b2e35 25%,
+            transparent 25%,
+            transparent 75%,
+            #2b2e35 75%
+          );
+        background-size: 24px 24px;
+        background-position:
+          0 0,
+          12px 12px;
+        overflow: auto;
+      }
+
+      #overlay {
+        display: inline-flex;
+        flex-direction: column;
+        gap: 10px;
+        padding: 12px;
+      }
+      .sticks {
+        display: flex;
+        gap: var(--gap);
+      }
+      .stick {
+        position: relative;
+        width: var(--size);
+        height: var(--size);
+      }
+      .stick canvas {
+        width: 100%;
+        height: 100%;
+        display: block;
+      }
+      .tag {
+        position: absolute;
+        left: 10px;
+        top: 7px;
+        font-size: calc(var(--size) * 0.055);
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        opacity: 0.65;
+        font-weight: 600;
+      }
+      .readout {
+        position: absolute;
+        right: 10px;
+        bottom: 7px;
+        font:
+          calc(var(--size) * 0.055)/1 Consolas,
+          ui-monospace,
+          monospace;
+        opacity: 0.7;
+        white-space: pre;
+      }
+      .no-labels .tag {
+        display: none;
+      }
+      .no-readout .readout,
+      .no-readout .aval {
+        display: none;
+      }
+
+      .aux {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 6px var(--gap);
+        width: calc(var(--size) * 2 + var(--gap));
+      }
+      .aux:empty,
+      .btns:empty {
+        display: none;
+      }
+      .auxitem {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: calc(var(--size) * 0.055);
+      }
+      .alabel {
+        width: 3.6em;
+        opacity: 0.7;
+        font-weight: 600;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .no-labels .alabel {
+        display: none;
+      }
+      .bar {
+        position: relative;
+        flex: 1;
+        height: calc(var(--size) * 0.06);
+        min-height: 8px;
+        background: var(--box);
+        border: 1px solid var(--line);
+        border-radius: 99px;
+        overflow: hidden;
+      }
+      .bar .fill {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        background: var(--accent);
+        box-shadow: 0 0 8px var(--accent);
+      }
+      .bar .mid {
+        position: absolute;
+        left: 50%;
+        top: 0;
+        bottom: 0;
+        width: 1px;
+        background: rgba(255, 255, 255, 0.35);
+      }
+      .aval {
+        width: 2.8em;
+        text-align: right;
+        font-family: Consolas, ui-monospace, monospace;
+        opacity: 0.7;
+      }
+
+      .btns {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        width: calc(var(--size) * 2 + var(--gap));
+      }
+      .btn {
+        min-width: calc(var(--size) * 0.12);
+        height: calc(var(--size) * 0.12);
+        padding: 0 4px;
+        box-sizing: border-box;
+        border-radius: 6px;
+        background: var(--box);
+        border: 1px solid var(--line);
+        display: grid;
+        place-items: center;
+        font-size: calc(var(--size) * 0.08);
+        font-weight: 600;
+        transition:
+          background 0.06s,
+          box-shadow 0.06s;
+      }
+      .btn.on {
+        background: var(--accent);
+        color: #08110b;
+        border-color: var(--accent);
+        box-shadow: 0 0 10px var(--accent);
+      }
+
+      #status {
+        font-size: 12px;
+        opacity: 0.6;
+      }
+      #status:empty {
+        display: none;
+      }
+
+      /* ---------- setup panel (normal browser only) ---------- */
+      #setup {
+        position: fixed;
+        top: 0;
+        right: 0;
+        width: 380px;
+        height: 100vh;
+        overflow: auto;
+        box-sizing: border-box;
+        padding: 16px 18px 40px;
+        background: #121519;
+        color: #d8dbe0;
+        font-size: 13px;
+        border-left: 1px solid #2a2f36;
+      }
+      #setup h2 {
+        margin: 0 0 4px;
+        font-size: 16px;
+      }
+      #setup h3 {
+        margin: 18px 0 8px;
+        font-size: 11px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: #8b93a0;
+      }
+      #setup .hint {
+        color: #8b93a0;
+        margin: 4px 0;
+        line-height: 1.4;
+      }
+      #setup select,
+      #setup input[type="text"],
+      #setup input[type="number"],
+      #setup textarea {
+        width: 100%;
+        box-sizing: border-box;
+        background: #1b1f25;
+        color: #e6e8eb;
+        border: 1px solid #2f353d;
+        border-radius: 6px;
+        padding: 6px 8px;
+        font: inherit;
+      }
+      #setup textarea {
+        height: 76px;
+        font:
+          12px Consolas,
+          monospace;
+        resize: vertical;
+      }
+      #setup button {
+        background: #262c34;
+        color: #e6e8eb;
+        border: 1px solid #3a414b;
+        border-radius: 6px;
+        padding: 6px 10px;
+        font: inherit;
+        cursor: pointer;
+      }
+      #setup button:hover {
+        background: #2f3640;
+      }
+      #setup button.active {
+        background: var(--accent);
+        color: #08110b;
+        border-color: var(--accent);
+      }
+      .maprow {
+        display: grid;
+        grid-template-columns: 84px 1fr auto;
+        align-items: center;
+        gap: 8px;
+        margin: 5px 0;
+      }
+      .maprow label {
+        color: #a8afba;
+        font-size: 12px;
+        display: flex;
+        gap: 4px;
+        align-items: center;
+      }
+      #prompt {
+        margin-top: 8px;
+        padding: 8px 10px;
+        border-radius: 6px;
+        background: #1d2a20;
+        color: #b9f5cb;
+      }
+      #prompt:empty {
+        display: none;
+      }
+      .field {
+        display: grid;
+        grid-template-columns: 110px 1fr;
+        gap: 8px;
+        align-items: center;
+        margin: 6px 0;
+      }
+      .field span {
+        color: #a8afba;
+      }
+      .checks {
+        display: flex;
+        gap: 14px;
+        margin: 8px 0;
+      }
+      .rawrow {
+        display: grid;
+        grid-template-columns: 34px 1fr 44px 54px;
+        gap: 8px;
+        align-items: center;
+        margin: 3px 0;
+        font:
+          12px Consolas,
+          monospace;
+      }
+      .rawbar {
+        position: relative;
+        height: 8px;
+        background: #1b1f25;
+        border-radius: 99px;
+        overflow: hidden;
+      }
+      .rawbar i {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        background: #6aa9ff;
+      }
+      .rawbar b {
+        position: absolute;
+        left: 50%;
+        top: 0;
+        bottom: 0;
+        width: 1px;
+        background: #556;
+      }
+      .rawtag {
+        color: var(--accent);
+      }
+      #rawBtns {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+      }
+      #rawBtns span {
+        width: 24px;
+        height: 22px;
+        display: grid;
+        place-items: center;
+        border-radius: 4px;
+        background: #1b1f25;
+        font:
+          11px Consolas,
+          monospace;
+      }
+      #rawBtns span.on {
+        background: #6aa9ff;
+        color: #000;
+      }
+      .range {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+      .range input {
+        flex: 1;
+      }
+      #trailmsVal {
+        width: 56px;
+        text-align: right;
+        font-family: Consolas, monospace;
+        color: #a8afba;
+      }
+      #sizeHint {
+        color: #b9f5cb;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="overlay">
+      <div class="sticks">
+        <div class="stick" id="stickL">
+          <canvas></canvas>
+          <div class="tag" id="tagL"></div>
+          <div class="readout"></div>
+        </div>
+        <div class="stick" id="stickR">
+          <canvas></canvas>
+          <div class="tag" id="tagR"></div>
+          <div class="readout"></div>
+        </div>
+      </div>
+      <div class="aux" id="aux"></div>
+      <div class="btns" id="btns"></div>
+      <div id="status"></div>
+    </div>
+
+    <aside id="setup" hidden>
+      <h2>Stick overlay setup</h2>
+      <p class="hint">
+        This panel only shows in a normal browser. Inside OBS it hides itself.
+      </p>
+
+      <h3>Controller</h3>
+      <select id="padSel">
+        <option value="">Move a stick on the radio…</option>
+      </select>
+      <p class="hint" id="padInfo"></p>
+
+      <h3>Map sticks</h3>
+      <p class="hint">
+        Click a button, then move that stick as prompted. Direction is detected
+        too.
+      </p>
+      <div id="maprows"></div>
+      <div id="prompt"></div>
+
+      <h3>Display</h3>
+      <div class="field">
+        <span>Left label</span><input type="text" id="f-ltag" />
+      </div>
+      <div class="field">
+        <span>Right label</span><input type="text" id="f-rtag" />
+      </div>
+      <div class="field">
+        <span>Aux axes</span
+        ><input
+          type="text"
+          id="f-aux"
+          placeholder="e.g. 4,5,6,7 (blank = none)"
+        />
+      </div>
+      <div class="field">
+        <span>Aux labels</span
+        ><input
+          type="text"
+          id="f-alabels"
+          placeholder="e.g. ARM,MODE,BEEP,TURTLE"
+        />
+      </div>
+      <div class="field">
+        <span>Buttons</span
+        ><input type="text" id="f-btn" placeholder="auto | none | 8 | 0,1,4" />
+      </div>
+      <div class="field">
+        <span>Button labels</span
+        ><input type="text" id="f-blabels" placeholder="e.g. SA,SB,SC" />
+      </div>
+      <div class="field">
+        <span>Box size (px)</span
+        ><input type="number" id="f-size" min="80" max="600" step="10" />
+      </div>
+      <div class="field">
+        <span>Accent color</span><input type="color" id="f-color" />
+      </div>
+      <div class="checks">
+        <label><input type="checkbox" id="f-trail" /> Trail</label>
+        <label><input type="checkbox" id="f-readout" /> Numbers</label>
+        <label><input type="checkbox" id="f-labels" /> Labels</label>
+      </div>
+      <div class="field">
+        <span>Trail decay</span>
+        <div class="range">
+          <input
+            type="range"
+            id="f-trailms"
+            min="50"
+            max="3000"
+            step="10"
+          /><span id="trailmsVal"></span>
+        </div>
+      </div>
+
+      <h3>Raw axes</h3>
+      <div id="rawAxes"><p class="hint">No controller yet.</p></div>
+      <h3>Raw buttons</h3>
+      <div id="rawBtns"></div>
+
+      <h3>OBS URL</h3>
+      <textarea id="url" readonly></textarea>
+      <p><button id="copy">Copy URL</button></p>
+      <p class="hint">
+        OBS → Sources → + → Browser. <b>Uncheck "Local file"</b> and paste this
+        into URL. <span id="sizeHint"></span>
+      </p>
+    </aside>
+
+    <script>
+      /* ===================== DEFAULTS (edit these, or override via URL params) =====================
+      Axis indices assume EdgeTX USB Joystick "Classic" mode with AETR channel order, Mode 2:
+      CH1 Ail -> axis 0, CH2 Ele -> axis 1, CH3 Thr -> axis 2, CH4 Rud -> axis 3, CH5-8 -> axes 4-7,
+      CH9+ -> buttons. Use the setup panel to detect your actual mapping.                          */
+      const DEFAULTS = {
+        lx: 3,
+        ly: 2, // left stick  (yaw, throttle)
+        rx: 0,
+        ry: 1, // right stick (roll, pitch)
+        inv: "", // comma list of inverted axes: lx,ly,rx,ry
+        ltag: "Yaw · Thr",
+        rtag: "Roll · Pitch",
+        aux: "", // extra axes drawn as bars (switches/pots on CH5-8). '' = none
+        alabels: "", // comma list, default CH#
+        btn: "auto", // auto | none | N (first N) | list "0,1,4"
+        bomit: [7, 9, 10],
+        blabels: "flare,reload,gun,view,map,drop,voice", // comma list, default 1..N,
+        size: 200, // px per stick box
+        color: "4ade80", // accent hex, no #
+        trail: 1,
+        trailms: 350, // how long the trail takes to fade out, in ms
+        readout: 1,
+        labels: 1,
+        pad: "", // substring of gamepad id to force a device
+        setup: "auto", // auto = show in normal browser, hide in OBS. 1 / 0 to force
+      };
+      const SAMPLE_MS = 4; // stick sampling interval, independent of render fps
+      /* ============================================================================================ */
+
+      const $ = (s) => document.querySelector(s);
+      const qs = new URLSearchParams(location.search);
+      const cfg = { ...DEFAULTS };
+      for (const k in DEFAULTS) if (qs.has(k)) cfg[k] = qs.get(k);
+      const NUMERIC = [
+        "lx",
+        "ly",
+        "rx",
+        "ry",
+        "size",
+        "trail",
+        "trailms",
+        "readout",
+        "labels",
+      ];
+      const toNum = (v, d) => {
+        const n = parseFloat(v);
+        return isNaN(n) ? d : n;
+      };
+      NUMERIC.forEach((k) => (cfg[k] = toNum(cfg[k], DEFAULTS[k])));
+      let inv = new Set(
+        String(cfg.inv)
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean),
+      );
+
+      const inOBS = !!window.obsstudio;
+      const showSetup =
+        String(cfg.setup) === "1" || (String(cfg.setup) === "auto" && !inOBS);
+
+      const parseList = (s) =>
+        String(s)
+          .split(",")
+          .map((x) => x.trim())
+          .filter((x) => x !== "")
+          .map(Number)
+          .filter((n) => !isNaN(n));
+      const splitLabels = (s) =>
+        String(s)
+          .split(",")
+          .map((x) => x.trim());
+
+      function hexToRgb(h) {
+        h = String(h).replace("#", "");
+        if (h.length === 3)
+          h = h
+            .split("")
+            .map((c) => c + c)
+            .join("");
+        const n = parseInt(h, 16);
+        return isNaN(n)
+          ? [74, 222, 128]
+          : [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+      }
+      let accentRGB = hexToRgb(cfg.color);
+      const rgba = (a) =>
+        `rgba(${accentRGB[0]},${accentRGB[1]},${accentRGB[2]},${a})`;
+
+      /* ---------- stick view ---------- */
+      class StickView {
+        constructor(el) {
+          this.el = el;
+          this.c = el.querySelector("canvas");
+          this.ctx = this.c.getContext("2d");
+          this.ro = el.querySelector(".readout");
+          this.samples = []; // {x,y,t} in stick units (-1..1), sampled at SAMPLE_MS
+          this.off = document.createElement("canvas"); // trail layer
+          this.octx = this.off.getContext("2d", { willReadFrequently: true });
+          this.resize();
+        }
+        resize() {
+          const d = window.devicePixelRatio || 1,
+            s = cfg.size;
+          if (s === this.s && d === this.d) return;
+          for (const [cv, cx] of [
+            [this.c, this.ctx],
+            [this.off, this.octx],
+          ]) {
+            cv.width = Math.round(s * d);
+            cv.height = Math.round(s * d);
+            cx.setTransform(d, 0, 0, d, 0, 0);
+          }
+          this.s = s;
+          this.d = d;
+        }
+        sample(x, y, t) {
+          x = Math.max(-1, Math.min(1, x));
+          y = Math.max(-1, Math.min(1, y));
+          const last = this.samples[this.samples.length - 1];
+          if (last && Math.abs(x - last.x) + Math.abs(y - last.y) < 0.002)
+            return;
+          this.samples.push({ x, y, t });
+        }
+        drawTrail(ctx, toPx, x, y, now, r) {
+          const ms = Math.max(16, cfg.trailms);
+          while (this.samples.length && now - this.samples[0].t > ms)
+            this.samples.shift();
+          const pts = this.samples.map((p) => ({ ...toPx(p.x, p.y), t: p.t }));
+          const head = { ...toPx(x, y), t: now };
+          const lp = pts[pts.length - 1];
+          if (!lp || Math.hypot(head.x - lp.x, head.y - lp.y) > 0.5)
+            pts.push(head);
+          if (pts.length < 2) return;
+
+          // smooth through the samples with a centripetal Catmull-Rom spline
+          const path = [pts[0]];
+          for (let i = 0; i < pts.length - 1; i++) {
+            const p1 = pts[i],
+              p2 = pts[i + 1];
+            const p0 = pts[i - 1] || { x: 2 * p1.x - p2.x, y: 2 * p1.y - p2.y };
+            const p3 = pts[i + 2] || { x: 2 * p2.x - p1.x, y: 2 * p2.y - p1.y };
+            const dist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+            const steps = dist < 1.5 ? 1 : Math.ceil(dist / 1.5);
+            for (let k = 1; k <= steps; k++) {
+              const u = k / steps;
+              const q = k === steps ? p2 : catmullRom(p0, p1, p2, p3, u);
+              path.push({ x: q.x, y: q.y, t: p1.t + (p2.t - p1.t) * u });
+            }
+          }
+
+          // Render fade as grayscale with "lighten" (per-pixel max), so overlapping
+          // segment caps never stack into visible beads. Then turn gray into alpha.
+          const o = this.octx,
+            s = this.s;
+          o.save();
+          o.globalCompositeOperation = "source-over";
+          o.fillStyle = "#000";
+          o.fillRect(0, 0, s, s);
+          o.globalCompositeOperation = "lighten";
+          o.lineCap = "round";
+          o.lineJoin = "round";
+          for (let j = 1; j < path.length; j++) {
+            const a = path[j - 1],
+              b = path[j];
+            const f = Math.max(0, Math.min(1, 1 - (now - b.t) / ms));
+            if (f <= 0) continue;
+            const e = f * f * (3 - 2 * f); // smoothstep fade
+            const v = Math.round(255 * e);
+            o.strokeStyle = `rgb(${v},${v},${v})`;
+            o.lineWidth = r * (0.3 + 0.6 * e); // taper toward the tail
+            line(o, a.x, a.y, b.x, b.y);
+          }
+          o.restore();
+          const img = o.getImageData(0, 0, this.off.width, this.off.height),
+            px = img.data;
+          const [ar, ag, ab] = accentRGB;
+          for (let i = 0; i < px.length; i += 4) {
+            const v = px[i];
+            px[i] = ar;
+            px[i + 1] = ag;
+            px[i + 2] = ab;
+            px[i + 3] = v * 0.7;
+          }
+          o.putImageData(img, 0, 0);
+          ctx.drawImage(this.off, 0, 0, s, s);
+        }
+        draw(x, y, now) {
+          const ctx = this.ctx,
+            s = this.s,
+            r = s * 0.065,
+            pad = r + s * 0.05;
+          const half = (s - 2 * pad) / 2,
+            cx = s / 2,
+            cy = s / 2;
+          x = Math.max(-1, Math.min(1, x));
+          y = Math.max(-1, Math.min(1, y));
+          ctx.clearRect(0, 0, s, s);
+
+          // box
+          roundRect(ctx, 0.5, 0.5, s - 1, s - 1, s * 0.09);
+          ctx.fillStyle = getComputedStyle(
+            document.documentElement,
+          ).getPropertyValue("--box");
+          ctx.fill();
+          ctx.strokeStyle = "rgba(255,255,255,.16)";
+          ctx.lineWidth = 1;
+          ctx.stroke();
+
+          // grid + travel
+          ctx.strokeStyle = "rgba(255,255,255,.06)";
+          for (const f of [-0.5, 0.5]) {
+            line(ctx, cx + f * half, cy - half, cx + f * half, cy + half);
+            line(ctx, cx - half, cy + f * half, cx + half, cy + f * half);
+          }
+          ctx.strokeStyle = "rgba(255,255,255,.10)";
+          ctx.strokeRect(cx - half, cy - half, half * 2, half * 2);
+          ctx.strokeStyle = "rgba(255,255,255,.18)";
+          line(ctx, cx, cy - half, cx, cy + half);
+          line(ctx, cx - half, cy, cx + half, cy);
+
+          const px = cx + x * half,
+            py = cy - y * half;
+
+          // trail
+          if (cfg.trail) {
+            this.sample(x, y, now);
+            this.drawTrail(
+              ctx,
+              (sx, sy) => ({ x: cx + sx * half, y: cy - sy * half }),
+              x,
+              y,
+              now,
+              r,
+            );
+          } else this.samples = [];
+
+          // stem
+          ctx.lineWidth = 2;
+          ctx.strokeStyle = rgba(0.35);
+          line(ctx, cx, cy, px, py);
+          ctx.fillStyle = "rgba(255,255,255,.35)";
+          ctx.beginPath();
+          ctx.arc(cx, cy, 2.5, 0, Math.PI * 2);
+          ctx.fill();
+
+          // dot
+          ctx.save();
+          ctx.shadowColor = rgba(0.9);
+          ctx.shadowBlur = r * 1.6;
+          ctx.beginPath();
+          ctx.arc(px, py, r, 0, Math.PI * 2);
+          ctx.fillStyle = rgba(1);
+          ctx.fill();
+          ctx.restore();
+          ctx.lineWidth = 2;
+          ctx.strokeStyle = "rgba(255,255,255,.9)";
+          ctx.stroke();
+
+          if (cfg.readout) this.ro.textContent = pct(x) + " " + pct(y);
+        }
+      }
+      function roundRect(ctx, x, y, w, h, r) {
+        ctx.beginPath();
+        ctx.moveTo(x + r, y);
+        ctx.arcTo(x + w, y, x + w, y + h, r);
+        ctx.arcTo(x + w, y + h, x, y + h, r);
+        ctx.arcTo(x, y + h, x, y, r);
+        ctx.arcTo(x, y, x + w, y, r);
+        ctx.closePath();
+      }
+      function catmullRom(p0, p1, p2, p3, u) {
+        const d = (p, q) =>
+          Math.max(1e-3, Math.sqrt(Math.hypot(q.x - p.x, q.y - p.y)));
+        const t0 = 0,
+          t1 = t0 + d(p0, p1),
+          t2 = t1 + d(p1, p2),
+          t3 = t2 + d(p2, p3);
+        const t = t1 + (t2 - t1) * u;
+        const lerp = (A, B, ta, tb) => {
+          const w = (t - ta) / (tb - ta);
+          return { x: A.x + (B.x - A.x) * w, y: A.y + (B.y - A.y) * w };
+        };
+        const A1 = lerp(p0, p1, t0, t1),
+          A2 = lerp(p1, p2, t1, t2),
+          A3 = lerp(p2, p3, t2, t3);
+        const B1 = lerp(A1, A2, t0, t2),
+          B2 = lerp(A2, A3, t1, t3);
+        return lerp(B1, B2, t1, t2);
+      }
+      function line(ctx, x0, y0, x1, y1) {
+        ctx.beginPath();
+        ctx.moveTo(x0, y0);
+        ctx.lineTo(x1, y1);
+        ctx.stroke();
+      }
+      const pct = (v) => {
+        const n = Math.round(v * 100);
+        return (n > 0 ? "+" + n : String(n)).padStart(4, " ");
+      };
+
+      const L = new StickView($("#stickL")),
+        R = new StickView($("#stickR"));
+
+      /* ---------- aux + buttons ---------- */
+      let auxEls = [],
+        btnEls = [],
+        btnSig = "";
+      function buildAux() {
+        const box = $("#aux");
+        box.innerHTML = "";
+        auxEls = [];
+        const labels = splitLabels(cfg.alabels);
+        parseList(cfg.aux).forEach((idx, i) => {
+          const it = document.createElement("div");
+          it.className = "auxitem";
+          it.innerHTML = `<span class="alabel"></span><div class="bar"><div class="fill"></div><div class="mid"></div></div><span class="aval"></span>`;
+          it.querySelector(".alabel").textContent =
+            labels[i] || "CH" + (idx + 1);
+          box.appendChild(it);
+          auxEls.push({
+            idx,
+            fill: it.querySelector(".fill"),
+            val: it.querySelector(".aval"),
+          });
+        });
+      }
+      function btnIndices(pad) {
+        const b = String(cfg.btn).trim().toLowerCase(),
+          n = pad ? pad.buttons.length : 0;
+        if (b === "" || b === "none" || b === "0") return [];
+        if (b === "auto") return [...Array(n).keys()];
+        if (/^\d+$/.test(b)) return [...Array(Math.min(+b, n || +b)).keys()];
+        return parseList(b);
+      }
+      function syncButtons(pad) {
+        const idxs = btnIndices(pad).filter(
+            (idx) => !cfg.bomit.includes(idx + 1),
+          ),
+          sig = idxs.join(",") + "|" + cfg.blabels;
+        if (sig === btnSig) return;
+        btnSig = sig;
+        const box = $("#btns");
+        box.innerHTML = "";
+        box.style = "display: flex; justify-content: space-around;";
+        btnEls = [];
+        const labels = splitLabels(cfg.blabels);
+        idxs.forEach((idx, i) => {
+          const el = document.createElement("div");
+          el.className = "btn";
+          el.textContent = labels[i] || String(idx + 1);
+          box.appendChild(el);
+          btnEls.push({ idx, el });
+        });
+      }
+
+      /* ---------- style ---------- */
+      function applyStyle() {
+        const root = document.documentElement.style;
+        root.setProperty("--size", cfg.size + "px");
+        root.setProperty("--accent", "#" + String(cfg.color).replace("#", ""));
+        accentRGB = hexToRgb(cfg.color);
+        $("#overlay").classList.toggle("no-labels", !cfg.labels);
+        $("#overlay").classList.toggle("no-readout", !cfg.readout);
+        $("#tagL").textContent = cfg.ltag;
+        $("#tagR").textContent = cfg.rtag;
+        L.resize();
+        R.resize();
+      }
+
+      /* ---------- gamepad ---------- */
+      function allPads() {
+        return [
+          ...(navigator.getGamepads ? navigator.getGamepads() : []),
+        ].filter(Boolean);
+      }
+      function findPad() {
+        const pads = allPads();
+        if (!pads.length) return null;
+        if (cfg.pad) {
+          const m = pads.find((p) =>
+            p.id.toLowerCase().includes(String(cfg.pad).toLowerCase()),
+          );
+          if (m) return m;
+        }
+        return (
+          pads.find((p) =>
+            /edgetx|opentx|radiomaster|boxer|frsky|jumper|betafpv|tbs/i.test(
+              p.id,
+            ),
+          ) || pads[0]
+        );
+      }
+      const axis = (pad, key) => {
+        const v = pad ? (pad.axes[cfg[key]] ?? 0) : 0;
+        return inv.has(key) ? -v : v;
+      };
+
+      function frame() {
+        const now = performance.now(); // same clock as the sampler
+        const pad = findPad();
+        $("#status").textContent = pad
+          ? ""
+          : showSetup || !inOBS
+            ? "Waiting for radio — move a stick."
+            : "";
+        L.draw(axis(pad, "lx"), axis(pad, "ly"), now);
+        R.draw(axis(pad, "rx"), axis(pad, "ry"), now);
+
+        for (const a of auxEls) {
+          const v = Math.max(-1, Math.min(1, pad ? (pad.axes[a.idx] ?? 0) : 0));
+          a.fill.style.left = (v >= 0 ? 50 : 50 + v * 50) + "%";
+          a.fill.style.width = Math.abs(v) * 50 + "%";
+          if (cfg.readout) a.val.textContent = Math.round(v * 100);
+        }
+        syncButtons(pad);
+        for (const b of btnEls) {
+          const btn = pad && pad.buttons[b.idx];
+          b.el.classList.toggle(
+            "on",
+            !!(btn && (btn.pressed || btn.value > 0.5)),
+          );
+        }
+        if (showSetup) updateSetup(pad);
+        requestAnimationFrame(frame);
+      }
+
+      /* ---------- setup panel ---------- */
+      const MAP = [
+        {
+          key: "lx",
+          name: "Left X",
+          prompt: "Move the LEFT stick fully RIGHT",
+        },
+        {
+          key: "ly",
+          name: "Left Y",
+          prompt: "Move the LEFT stick from the bottom to fully UP",
+        },
+        {
+          key: "rx",
+          name: "Right X",
+          prompt: "Move the RIGHT stick fully RIGHT",
+        },
+        { key: "ry", name: "Right Y", prompt: "Move the RIGHT stick fully UP" },
+      ];
+      let detect = null,
+        rawSig = "",
+        padListSig = "";
+
+      function initSetup() {
+        document.body.classList.add("setup-mode");
+        $("#setup").hidden = false;
+        const rows = $("#maprows");
+        MAP.forEach((m) => {
+          const row = document.createElement("div");
+          row.className = "maprow";
+          row.innerHTML = `<button data-key="${m.key}">${m.name}</button><span id="m-${m.key}"></span>
+         <label><input type="checkbox" data-inv="${m.key}"> invert</label>`;
+          rows.appendChild(row);
+        });
+        rows.addEventListener("click", (e) => {
+          const k = e.target.dataset && e.target.dataset.key;
+          if (!k) return;
+          const pad = findPad();
+          if (!pad) {
+            $("#prompt").textContent =
+              "No controller detected yet — move a stick first.";
+            return;
+          }
+          detect = { key: k, base: [...pad.axes] };
+          document
+            .querySelectorAll("#maprows button")
+            .forEach((b) => b.classList.toggle("active", b.dataset.key === k));
+          $("#prompt").textContent = MAP.find((m) => m.key === k).prompt + "…";
+        });
+        rows.addEventListener("change", (e) => {
+          const k = e.target.dataset && e.target.dataset.inv;
+          if (!k) return;
+          e.target.checked ? inv.add(k) : inv.delete(k);
+          refreshSetup();
+        });
+
+        const bind = (id, key, kind) => {
+          const el = $(id);
+          if (kind === "check") el.checked = !!cfg[key];
+          else if (kind === "color")
+            el.value = "#" + String(cfg.color).replace("#", "");
+          else el.value = cfg[key];
+          el.addEventListener("input", () => {
+            if (kind === "check") cfg[key] = el.checked ? 1 : 0;
+            else if (kind === "color") cfg[key] = el.value.replace("#", "");
+            else if (kind === "num") cfg[key] = toNum(el.value, DEFAULTS[key]);
+            else cfg[key] = el.value;
+            applyStyle();
+            buildAux();
+            btnSig = "";
+            refreshSetup();
+          });
+        };
+        bind("#f-ltag", "ltag");
+        bind("#f-rtag", "rtag");
+        bind("#f-aux", "aux");
+        bind("#f-alabels", "alabels");
+        bind("#f-btn", "btn");
+        bind("#f-blabels", "blabels");
+        bind("#f-size", "size", "num");
+        bind("#f-color", "color", "color");
+        bind("#f-trail", "trail", "check");
+        bind("#f-trailms", "trailms", "num");
+        const showMs = () =>
+          ($("#trailmsVal").textContent = cfg.trailms + " ms");
+        $("#f-trailms").addEventListener("input", showMs);
+        showMs();
+        bind("#f-readout", "readout", "check");
+        bind("#f-labels", "labels", "check");
+
+        $("#padSel").addEventListener("change", (e) => {
+          cfg.pad = e.target.value;
+          refreshSetup();
+        });
+        $("#copy").addEventListener("click", async () => {
+          const t = $("#url");
+          try {
+            await navigator.clipboard.writeText(t.value);
+          } catch {
+            t.select();
+            document.execCommand("copy");
+          }
+          $("#copy").textContent = "Copied!";
+          setTimeout(() => ($("#copy").textContent = "Copy URL"), 1200);
+        });
+        refreshSetup();
+      }
+
+      function buildURL() {
+        const p = new URLSearchParams(),
+          cur = { ...cfg, inv: [...inv].join(",") };
+        for (const k in DEFAULTS) {
+          if (k === "setup") continue;
+          if (String(cur[k]) !== String(DEFAULTS[k])) p.set(k, cur[k]);
+        }
+        const s = p.toString();
+        return location.href.split(/[?#]/)[0] + (s ? "?" + s : "");
+      }
+
+      function refreshSetup() {
+        MAP.forEach((m) => {
+          $("#m-" + m.key).textContent = "axis " + cfg[m.key];
+          document.querySelector(`[data-inv="${m.key}"]`).checked = inv.has(
+            m.key,
+          );
+        });
+        $("#url").value = buildURL();
+        requestAnimationFrame(() => {
+          const r = $("#overlay").getBoundingClientRect();
+          $("#sizeHint").textContent =
+            ` Set the source to ${Math.ceil(r.width)} × ${Math.ceil(r.height)}.`;
+        });
+      }
+
+      function updateSetup(pad) {
+        // device list
+        const pads = allPads(),
+          sig = pads.map((p) => p.index + p.id).join("|") + "|" + cfg.pad;
+        if (sig !== padListSig) {
+          padListSig = sig;
+          const sel = $("#padSel");
+          sel.innerHTML = pads.length
+            ? '<option value="">Auto-detect</option>'
+            : '<option value="">Move a stick on the radio…</option>';
+          pads.forEach((p) => {
+            const o = document.createElement("option");
+            o.value = p.id;
+            o.textContent = `#${p.index} ${p.id}`;
+            sel.appendChild(o);
+          });
+          sel.value =
+            cfg.pad && pads.some((p) => p.id === cfg.pad) ? cfg.pad : "";
+          refreshSetup();
+        }
+        $("#padInfo").textContent = pad
+          ? `Using: ${pad.id} — ${pad.axes.length} axes, ${pad.buttons.length} buttons`
+          : "";
+        if (!pad) return;
+
+        // raw axes
+        const rs = pad.index + ":" + pad.axes.length;
+        if (rs !== rawSig) {
+          rawSig = rs;
+          const box = $("#rawAxes");
+          box.innerHTML = "";
+          pad.axes.forEach((_, i) => {
+            const row = document.createElement("div");
+            row.className = "rawrow";
+            row.innerHTML = `<span>A${i}</span><div class="rawbar"><i></i><b></b></div><span class="v"></span><span class="rawtag"></span>`;
+            box.appendChild(row);
+          });
+          const bb = $("#rawBtns");
+          bb.innerHTML = "";
+          pad.buttons.forEach((_, i) => {
+            const s = document.createElement("span");
+            s.textContent = i;
+            bb.appendChild(s);
+          });
+        }
+        const rows = $("#rawAxes").children;
+        pad.axes.forEach((v, i) => {
+          const row = rows[i];
+          if (!row) return;
+          const bar = row.querySelector("i");
+          bar.style.left = (v >= 0 ? 50 : 50 + v * 50) + "%";
+          bar.style.width = Math.abs(v) * 50 + "%";
+          row.querySelector(".v").textContent = v.toFixed(2);
+          const tags = MAP.filter((m) => cfg[m.key] === i).map((m) =>
+            m.key.toUpperCase(),
+          );
+          if (parseList(cfg.aux).includes(i)) tags.push("AUX");
+          row.querySelector(".rawtag").textContent = tags.join(" ");
+        });
+        const bs = $("#rawBtns").children;
+        pad.buttons.forEach(
+          (b, i) =>
+            bs[i] && bs[i].classList.toggle("on", b.pressed || b.value > 0.5),
+        );
+
+        // detection
+        if (detect) {
+          let best = -1,
+            bestD = 0;
+          pad.axes.forEach((v, i) => {
+            const d = v - (detect.base[i] ?? 0);
+            if (Math.abs(d) > Math.abs(bestD)) {
+              bestD = d;
+              best = i;
+            }
+          });
+          if (best >= 0 && Math.abs(bestD) > 0.6) {
+            cfg[detect.key] = best;
+            bestD < 0 ? inv.add(detect.key) : inv.delete(detect.key);
+            $("#prompt").textContent =
+              `${MAP.find((m) => m.key === detect.key).name} → axis ${best}${bestD < 0 ? " (inverted)" : ""}`;
+            document
+              .querySelectorAll("#maprows button")
+              .forEach((b) => b.classList.remove("active"));
+            detect = null;
+            refreshSetup();
+          }
+        }
+      }
+
+      /* ---------- boot ---------- */
+      window.addEventListener("gamepadconnected", () => {
+        btnSig = "";
+        rawSig = "";
+      });
+      window.addEventListener("gamepaddisconnected", () => {
+        btnSig = "";
+        rawSig = "";
+      });
+      applyStyle();
+      buildAux();
+      if (showSetup) initSetup();
+      // sample sticks faster than OBS renders, so fast flicks still trace a smooth curve
+      setInterval(() => {
+        if (!cfg.trail) return;
+        const pad = findPad();
+        if (!pad) return;
+        const t = performance.now();
+        L.sample(axis(pad, "lx"), axis(pad, "ly"), t);
+        R.sample(axis(pad, "rx"), axis(pad, "ry"), t);
+      }, SAMPLE_MS);
+      requestAnimationFrame(frame);
+    </script>
+  </body>
+</html>
