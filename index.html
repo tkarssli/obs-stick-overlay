@@ -401,6 +401,11 @@
         font-family: Consolas, monospace;
         color: #a8afba;
       }
+      #setup .tip {
+        cursor: help;
+        text-decoration: underline dotted rgba(255, 255, 255, 0.35);
+        text-underline-offset: 3px;
+      }
       #sizeHint {
         color: #b9f5cb;
       }
@@ -470,7 +475,11 @@
       </div>
       <div class="field">
         <span>Buttons</span
-        ><input type="text" id="f-btn" placeholder="auto | none | 8 | 0,1,4" />
+        ><input type="text" id="f-btn" placeholder="auto | none | 8 | 1,2,5" />
+      </div>
+      <div class="field">
+        <span>Hide buttons</span
+        ><input type="text" id="f-bomit" placeholder="e.g. 7,9,10 (button numbers)" />
       </div>
       <div class="field">
         <span>Button labels</span
@@ -530,9 +539,9 @@
         rtag: "Roll · Pitch",
         aux: "", // extra axes drawn as bars (switches/pots on CH5-8). '' = none
         alabels: "", // comma list, default CH#
-        btn: "auto", // auto | none | N (first N) | list "0,1,4"
-        bomit: [7, 9, 10],
-        blabels: "flare,reload,gun,view,map,drop,voice", // comma list, default 1..N,
+        btn: "auto", // auto | none | N (first N) | list of button numbers "1,2,5"
+        bomit: "", // buttons to hide, by number as shown (1 = first), e.g. "7,9,10"
+        blabels: "", // comma list for the visible buttons, default 1..N
         size: 200, // px per stick box
         color: "4ade80", // accent hex, no #
         trail: 1,
@@ -848,13 +857,13 @@
         if (b === "" || b === "none" || b === "0") return [];
         if (b === "auto") return [...Array(n).keys()];
         if (/^\d+$/.test(b)) return [...Array(Math.min(+b, n || +b)).keys()];
-        return parseList(b);
+        return parseList(b).map((n) => n - 1).filter((n) => n >= 0);
       }
       function syncButtons(pad) {
         const idxs = btnIndices(pad).filter(
-            (idx) => !cfg.bomit.includes(idx + 1),
+            (idx) => !parseList(cfg.bomit).includes(idx + 1),
           ),
-          sig = idxs.join(",") + "|" + cfg.blabels;
+          sig = idxs.join(",") + "|" + cfg.blabels + "|" + cfg.bomit;
         if (sig === btnSig) return;
         btnSig = sig;
         const box = $("#btns");
@@ -974,6 +983,10 @@
           row.className = "maprow";
           row.innerHTML = `<button data-key="${m.key}">${m.name}</button><span id="m-${m.key}"></span>
          <label><input type="checkbox" data-inv="${m.key}"> invert</label>`;
+          row.querySelector("button").title =
+            `Click, then: ${m.prompt.toLowerCase()}. Detects which axis this is and which way it goes.`;
+          row.querySelector("label").title =
+            "Flip this axis if the dot moves the opposite way to your stick.";
           rows.appendChild(row);
         });
         rows.addEventListener("click", (e) => {
@@ -1015,11 +1028,41 @@
             refreshSetup();
           });
         };
+        const TIPS = {
+          "#padSel": "Which controller to read. Auto-detect prefers an RC radio (EdgeTX, OpenTX, RadioMaster…) and otherwise uses the first controller it sees.",
+          "#f-ltag": "Text shown in the top-left corner of the left stick box. Leave blank for none.",
+          "#f-rtag": "Text shown in the top-left corner of the right stick box. Leave blank for none.",
+          "#f-aux": "Extra axes to draw as bars under the sticks, such as switches or knobs. Use the numbers from Raw axes (A4 = 4), comma-separated. Blank = no bars.",
+          "#f-alabels": "Names for the aux bars, in the same order, comma-separated. Blank = CH5, CH6…",
+          "#f-btn": "Which buttons to show: auto = all, none = no buttons, a number = the first N, or a list of button numbers like 1,2,5.",
+          "#f-bomit": "Buttons to leave out, by number as shown in Raw buttons, comma-separated. Handy for buttons you never use.",
+          "#f-blabels": "Names for the visible buttons, in order, comma-separated. Blank = button numbers.",
+          "#f-size": "Width and height of each stick box in pixels. Text, dots and buttons scale with it.",
+          "#f-color": "Colour of the stick dots, trails, aux bars and pressed buttons.",
+          "#f-trail": "Draw a fading trail behind each stick dot.",
+          "#f-readout": "Show stick positions as numbers (-100 to +100) in the corner of each box, and values on aux bars.",
+          "#f-labels": "Show the stick box labels and aux bar labels.",
+          "#f-trailms": "How long the trail takes to fade out. Shorter is snappier, longer shows more of the motion.",
+          "#url": "Your current settings as a link. Paste it into an OBS Browser source with Local file unchecked.",
+          "#copy": "Copy the OBS link to your clipboard.",
+        };
+        for (const [sel, tip] of Object.entries(TIPS)) {
+          const el = $(sel);
+          if (!el) continue;
+          el.title = tip;
+          const row = el.closest(".field, label");
+          if (row) {
+            row.title = tip;
+            const name = row.matches("label") ? row : row.querySelector(":scope > span");
+            if (name) name.classList.add("tip");
+          }
+        }
         bind("#f-ltag", "ltag");
         bind("#f-rtag", "rtag");
         bind("#f-aux", "aux");
         bind("#f-alabels", "alabels");
         bind("#f-btn", "btn");
+        bind("#f-bomit", "bomit");
         bind("#f-blabels", "blabels");
         bind("#f-size", "size", "num");
         bind("#f-color", "color", "color");
@@ -1117,7 +1160,7 @@
           bb.innerHTML = "";
           pad.buttons.forEach((_, i) => {
             const s = document.createElement("span");
-            s.textContent = i;
+            s.textContent = i + 1;
             bb.appendChild(s);
           });
         }
